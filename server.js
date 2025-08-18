@@ -8,26 +8,29 @@ const path = require('path');
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: (process.env.CLIENT_ORIGIN || '').split(',').filter(Boolean) || '*',
-    methods: ['GET','POST'],
+    origin: '*', // Render serves frontend + backend together, so safe
+    methods: ['GET', 'POST'],
   },
 });
 
+// Serve React frontend build
+app.use(express.static(path.join(__dirname, 'build')));
 
-app.use(express.static('build'));
-app.use((req, res, next) =>{
+app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
-})
+});
 
 const userSocketMap = {};
 
 function getAllConnectedClients(roomId) {
-  return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map((socketId) => {
-    return {
-      socketId,
-      username: userSocketMap[socketId],
-    };
-  });
+  return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(
+    (socketId) => {
+      return {
+        socketId,
+        username: userSocketMap[socketId],
+      };
+    }
+  );
 }
 
 io.on('connection', (socket) => {
@@ -74,5 +77,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
+  console.log(`🚀 Server listening on port ${PORT}`);
 });
