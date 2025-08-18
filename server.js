@@ -6,7 +6,12 @@ const ACTIONS = require('./src/Actions');
 const path = require('path');
 
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: (process.env.CLIENT_ORIGIN || '').split(',').filter(Boolean) || '*',
+    methods: ['GET','POST'],
+  },
+});
 
 
 app.use(express.static('build'));
