@@ -5,13 +5,18 @@ export const initSocket = async () => {
         'force new connection': true,
         reconnectionAttempts: 'Infinity',
         timeout: 10000,
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'], // Added polling for better production connectivity
         upgrade: true,
         rememberUpgrade: true,
     };
     
     try {
-        const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+        // Production backend URL with fallback
+        const backendUrl = process.env.REACT_APP_BACKEND_URL || 
+                          (process.env.NODE_ENV === 'production' 
+                           ? 'https://realtime-code-editor-ochre.vercel.app'  // Replace with your Render URL
+                           : 'http://localhost:5000');
+        
         console.log('Connecting to:', backendUrl);
         
         const socket = io(backendUrl, options);

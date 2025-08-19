@@ -1,123 +1,85 @@
 const express = require('express');
 const app = express();
 const http = require('http');
-const path = require('path');
 const { Server } = require('socket.io');
 const ACTIONS = require('./src/Actions');
+const path = require('path');
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: process.env.NODE_ENV === 'production' ? false : ["http://localhost:3000"],
-        methods: ["GET", "POST"]
-    }
+  cors: {
+    origin: [
+      'http://localhost:3000', 
+      'https://realtime-code-editor-ochre.vercel.app', 
+      'https://*.vercel.app'
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
 });
 
-// Serve static files from the React app build directory
-app.use(express.static('build'));
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', message: 'Server is running' });
+});
 
-// Catch all handler: send back React's index.html file for any non-API routes
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'build', 'index.html'));
+// Serve React frontend build (for local testing)
+app.use(express.static(path.join(__dirname, 'build')));
+
+app.get('/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
 const userSocketMap = {};
 
 function getAllConnectedClients(roomId) {
-    try {
-        // Get all socket IDs in the room
-        const room = io.sockets.adapter.rooms.get(roomId);
-        if (!room) {
-            return [];
-        }
-        
-        return Array.from(room).map((socketId) => {
-            return {
-                socketId,
-                username: userSocketMap[socketId],
-            };
-        }).filter(client => client.username); // Filter out clients without username
-    } catch (error) {
-        console.error('Error getting connected clients:', error);
-        return [];
+  return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(
+    (socketId) => {
+      return {
+        socketId,
+        username: userSocketMap[socketId],
+      };
     }
+  );
 }
 
 io.on('connection', (socket) => {
-    console.log('Socket connected:', socket.id);
+  console.log('socket connected', socket.id);
 
-    socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
-        try {
-            userSocketMap[socket.id] = username;
-            socket.join(roomId);
-            
-            const clients = getAllConnectedClients(roomId);
-            console.log(`${username} joined room ${roomId}. Total clients:`, clients.length);
-            
-            // Notify all clients in the room about the new user
-            clients.forEach(({ socketId }) => {
-                io.to(socketId).emit(ACTIONS.JOINED, {
-                    clients,
-                    username,
-                    socketId: socket.id,
-                });
-            });
-        } catch (error) {
-            console.error('Error handling join event:', error);
-        }
+  socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
+    userSocketMap[socket.id] = username;
+    socket.join(roomId);
+    const clients = getAllConnectedClients(roomId);
+    clients.forEach(({ socketId }) => {
+      io.to(socketId).emit(ACTIONS.JOINED, {
+        clients,
+        username,
+        socketId: socket.id,
+      });
     });
+  });
 
-    socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
-        try {
-            // Broadcast code change to all other clients in the room
-            socket.in(roomId).emit(ACTIONS.CODE_CHANGE, { code });
-        } catch (error) {
-            console.error('Error handling code change:', error);
-        }
-    });
+  socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
+    socket.in(roomId).emit(ACTIONS.CODE_CHANGE, { code });
+  });
 
-    socket.on(ACTIONS.SYNC_CODE, ({ socketId, code }) => {
-        try {
-            // Send current code to a specific client
-            io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
-        } catch (error) {
-            console.error('Error syncing code:', error);
-        }
-    });
+  socket.on(ACTIONS.SYNC_CODE, ({ socketId, code }) => {
+    io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
+  });
 
-    socket.on('disconnecting', () => {
-        try {
-            const rooms = [...socket.rooms];
-            const username = userSocketMap[socket.id];
-            
-            console.log(`${username} is disconnecting from rooms:`, rooms);
-            
-            // Notify all rooms about the disconnection
-            rooms.forEach((roomId) => {
-                if (roomId !== socket.id) { // Skip the default room (socket's own room)
-                    socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
-                        socketId: socket.id,
-                        username: username,
-                    });
-                }
-            });
-        } catch (error) {
-            console.error('Error handling disconnect:', error);
-        }
+  socket.on('disconnecting', () => {
+    const rooms = [...socket.rooms];
+    rooms.forEach((roomId) => {
+      socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
+        socketId: socket.id,
+        username: userSocketMap[socket.id],
+      });
     });
-
-    socket.on('disconnect', () => {
-        try {
-            const username = userSocketMap[socket.id];
-            console.log(`Socket disconnected: ${socket.id} (${username})`);
-            delete userSocketMap[socket.id];
-        } catch (error) {
-            console.error('Error cleaning up after disconnect:', error);
-        }
-    });
+    delete userSocketMap[socket.id];
+  });
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server listening on port ${PORT}`);
 });
